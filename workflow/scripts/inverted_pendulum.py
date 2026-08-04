@@ -14,6 +14,9 @@ def clamp(number, min, max):
         return number
 
 
+# this system is based on the Algorithm's for Validation (Kochenderfer et al.) example case!
+
+
 class InvertedPendulum:
     def __init__(self, m, l, dt):
         self.m = m  # mass of the pendulum
