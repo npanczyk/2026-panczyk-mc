@@ -1,0 +1,4 @@
+name: mc26
+channels:
+  - conda-forge
+prefix: /Users/clover/mambaforge3/envs/mc26
