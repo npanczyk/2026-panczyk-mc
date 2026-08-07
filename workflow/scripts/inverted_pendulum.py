@@ -15,6 +15,45 @@ def clamp(number, min, max):
 
 
 # this system is based on the Algorithm's for Validation (Kochenderfer et al.) example case!
+class Disturbance:
+    def __init__(self, xo, xa, xs):
+        self.xo = xo
+        self.xa = xa
+        self.xs = xs
+        pass
+
+
+class DisturbanceDistribution:
+    def __init__(self, Do, Da, Ds):
+        self.Do = Do
+        self.Da = Da
+        self.Ds = Ds
+        pass
+
+
+def plot_observation_disturbances(xs, sigma):
+    fig, ax = plt.subplots()
+    for x in xs:
+        ax.scatter(x.xo[0, 0], x.xo[1, 0], color="orange")
+    ax.set_xlabel(r"xo, $\theta$")
+    ax.set_ylabel(r"xo, $\omega$")
+    ax.set_xlim((-1, 1))
+    ax.set_ylim((-1, 1))
+    ax.set_title(r"$\sigma = $ " + f"{sigma}")
+    plt.savefig(f"../../results/disturbance_plot_{sigma}.svg", dpi=300)
+    return ax
+
+
+def plot_trajectories(theta_matrix, sigma):
+    fig, ax = plt.subplots()
+    ax.plot(theta_matrix, color="steelblue", alpha=0.5, linewidth=0.8)
+    plt.axhline(np.pi / 4, color="red", linewidth=1)
+    plt.axhline(-np.pi / 4, color="red", linewidth=1)
+    ax.set_title(r"$\sigma = $ " + f"{sigma}")
+    plt.xlabel("t, [s]")
+    plt.ylabel(r"$\theta$, [rad]")
+    plt.savefig(f"../../results/inverted_pendulum_{sigma}.svg", dpi=300)
+    return ax
 
 
 class InvertedPendulum:
@@ -25,7 +64,6 @@ class InvertedPendulum:
         self.g = 9.81  # m/s**2, gravitational constant
         self.w_max = 8.0  # maximum angular velocity
         self.a_max = 2.0  # maximum applicable torque
-        self.Do = norm(0, 0.1)  # observation disturbance distribution
         self.alpha = np.array(
             [[-15, -8]]
         )  # (1 x 2) gain matrix for proportional control
@@ -35,20 +73,19 @@ class InvertedPendulum:
         w0 = np.random.uniform(-1.0, 1.0)
         return theta0, w0
 
-    def get_observation(self, s):
+    def get_observation(self, s, xo):
         # additive noise sensor
         # grab disturbance distribution from init and sample
         s = np.array([[s[0]], [s[1]]])
-        noise = self.Do.rvs(size=s.shape)
-        return s + noise
+        return s + xo
 
-    def get_action(self, o):
+    def get_action(self, o, xa):
         # proportional counter
         # take the dot product of the gain matrix and the observation
         torque = self.alpha @ o
-        return torque[0][0]
+        return torque[0][0] + xa[0]
 
-    def get_state(self, s, a):
+    def get_state(self, s, a, xs):
         """Gets values for the next state.
 
         Args:
@@ -63,22 +100,31 @@ class InvertedPendulum:
         w = w + ((3 * g / (2 * l)) * np.sin(theta) + (3 * a) / (m * l**2)) * dt
         theta = theta + w * dt
         w = clamp(w, -1 * self.w_max, self.w_max)
-        return theta, w
+        return theta + xs[0, 0], w + xs[1, 0]
 
-    def rollout(self, runtime):
+    def step(self, s, disturbance_dist):
+        xo = disturbance_dist.Do.rvs(size=(2, 1))
+        o = self.get_observation(s, xo)
+        xa = disturbance_dist.Da.rvs(size=1)
+        a = self.get_action(o, xa)
+        xs = disturbance_dist.Ds.rvs(size=(2, 1))
+        sprime = self.get_state(s, a, xs)
+        return o, a, sprime, Disturbance(xo, xa, xs)
+
+    def rollout(self, runtime, disturbance_dist):
         s = self.get_initial_state()  # initial state: (theta, omega)
         time = np.arange(0, runtime, self.dt)
-        thetas = np.zeros(len(time))
-        omegas = np.zeros(len(time))
+        thetas = np.zeros(len(time))  # empty array of angles from centerline
+        omegas = np.zeros(len(time))  # empty array of angular velocities
+        xs = []
         thetas[0] = s[0]
         omegas[0] = s[1]
         for i, t in enumerate(time):
-            o = self.get_observation(s)
-            a = self.get_action(o)
-            s = self.get_state(s, a)
+            o, a, s, x = self.step(s, disturbance_dist)
             thetas[i] = s[0]
             omegas[i] = s[1]
-        return thetas, omegas
+            xs.append(x)
+        return thetas, omegas, xs
 
     def check_spec(self, trajectory):
         """Checks if a trajectory is within spec
@@ -93,7 +139,11 @@ class InvertedPendulum:
 
 
 if __name__ == "__main__":
-    n_rollouts = 1000
+    n_rollouts = 300
+    sig = 0.15
+    disturbance_dist = DisturbanceDistribution(
+        Do=norm(0, sig), Da=norm(0, 0), Ds=norm(0, 0)
+    )
     pendulum = InvertedPendulum(m=1.0, l=1.0, dt=0.05)
     runtime = 10  # length of rollout in seconds
     timesteps = int(
@@ -103,14 +153,10 @@ if __name__ == "__main__":
     theta_matrix = np.zeros((timesteps, n_rollouts))
 
     for r in range(n_rollouts):
-        thetas, omegas = pendulum.rollout(runtime)
+        thetas, omegas, xs = pendulum.rollout(runtime, disturbance_dist)
         theta_matrix[:, r] = thetas
         successes[r] = pendulum.check_spec(thetas)
 
+    plot_observation_disturbances(xs, sigma=sig)
+    plot_trajectories(theta_matrix, sigma=sig)
     print(f"Success Rate: {successes.sum()/n_rollouts}")
-    plt.plot(theta_matrix, color="steelblue", alpha=0.5, linewidth=0.8)
-    plt.axhline(np.pi / 4, color="red", linewidth=1)
-    plt.axhline(-np.pi / 4, color="red", linewidth=1)
-    plt.xlabel("Time [s]")
-    plt.ylabel("Theta [rad]")
-    plt.savefig("../../results/inverted_pendulum.svg", dpi=300)
