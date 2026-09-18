@@ -1,3 +1,7 @@
+"""
+The tests in this script were generated in conjunction with Claude Sonnet 5 but were modified and verified by the author (Nataly Panczyk).
+"""
+
 import pytest
 from pke import HolosPK
 
