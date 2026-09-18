@@ -1,0 +1,2 @@
+time,observed_power,desired_power,drum_1,drum_2,drum_3,drum_4,drum_5,drum_6,drum_7,drum_8,actual_power,c1,c2,c3,c4,c5,c6,Tf,Tm,Tc,Xe,I,diff
+0.0,1.0,1.0,77.8,77.8,77.8,77.8,77.8,77.8,77.8,77.8,1.0,1.0,1.0,1.0,1.0,1.0,1.0,832.4,830.22,814.35,1.0211272127599268e+19,1.1698434407665506e+19,0.0

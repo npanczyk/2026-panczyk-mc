@@ -1,0 +1,181 @@
+import gymnasium as gym
+import numpy as np
+import pandas as pd
+import pytest
+from unittest.mock import MagicMock, patch, call
+
+import accessories
+import loops
+
+
+# ---------------------------------------------------------------------------
+# train_rl
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def env_kwargs():
+    return {}
+
+
+class DummyDictEnv(gym.Env):
+    """Minimal Dict-observation env so PPO('MultiInputPolicy', ...) is valid
+    and a real training test finishes quickly."""
+
+    def __init__(self, run_path=None):
+        self.observation_space = gym.spaces.Dict(
+            {"obs": gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)}
+        )
+        self.action_space = gym.spaces.Discrete(2)
+        self._t = 0
+
+    def reset(self, *, seed=None, options=None):
+        self._t = 0
+        return {"obs": self.observation_space["obs"].sample()}, {}
+
+    def step(self, action):
+        self._t += 1
+        obs = {"obs": self.observation_space["obs"].sample()}
+        terminated = self._t >= 3
+        return obs, 0.0, terminated, False, {}
+
+
+def test_train_rl_wires_up_components_correctly(tmp_path, env_kwargs):
+    """Mocked: confirms train_rl constructs/configures SB3 objects with the
+    right arguments, without actually training."""
+    save_dir = tmp_path
+
+    with patch("loops.make_vec_env") as mock_make_vec_env, patch(
+        "loops.VecMonitor"
+    ) as mock_vec_monitor, patch("loops.Monitor") as mock_monitor, patch(
+        "loops.sb3.PPO"
+    ) as mock_ppo_cls, patch(
+        "loops.EvalCallback"
+    ) as mock_eval_cb_cls:
+
+        mock_vec_env = MagicMock()
+        mock_make_vec_env.return_value = mock_vec_env
+        mock_vec_monitor.return_value = mock_vec_env
+
+        mock_model = MagicMock()
+        mock_ppo_cls.return_value = mock_model
+
+        loops.train_rl(
+            DummyDictEnv, save_dir, env_kwargs, total_timesteps=5_000, n_envs=10
+        )
+
+        # dirs created
+        assert (save_dir / "models").exists()
+
+        # vec env built with requested env_type/n_envs/kwargs
+        mock_make_vec_env.assert_called_once_with(
+            DummyDictEnv, n_envs=10, env_kwargs=env_kwargs
+        )
+
+        # PPO constructed on the (wrapped) vec env
+        assert mock_ppo_cls.call_args.args[0] == "MultiInputPolicy"
+        assert mock_ppo_cls.call_args.args[1] is mock_vec_env
+
+        # eval_freq: 10_000 / n_envs=10 -> 1000, rounded to nearest 1000
+        _, eval_cb_kwargs = mock_eval_cb_cls.call_args
+        assert eval_cb_kwargs["eval_freq"] == 1000
+        assert eval_cb_kwargs["deterministic"] is True
+
+        # learn() called with total_timesteps and the eval callback
+        mock_model.learn.assert_called_once()
+        _, learn_kwargs = mock_model.learn.call_args
+        assert learn_kwargs["total_timesteps"] == 5_000
+        assert learn_kwargs["callback"] is mock_eval_cb_cls.return_value
+
+
+def test_train_rl_real_smoke_run(tmp_path, env_kwargs):
+    """Real (unmocked) end-to-end run: tiny env, tiny total_timesteps,
+    n_envs=1. Confirms train_rl actually produces a saved model + logs,
+    not just that it calls the right APIs."""
+    save_dir = tmp_path
+
+    loops.train_rl(DummyDictEnv, save_dir, env_kwargs, total_timesteps=200, n_envs=1)
+
+    model_files = list((tmp_path / "models").glob("*.zip"))
+    assert model_files, "expected EvalCallback to save at least one checkpoint"
+    assert (tmp_path / "logs").exists()
+
+
+# ---------------------------------------------------------------------------
+# rl_control_loop
+# ---------------------------------------------------------------------------
+
+
+def test_rl_control_loop_runs_until_terminated_and_renders_once():
+    mock_model = MagicMock()
+    mock_model.predict.return_value = (0, None)
+
+    mock_env = MagicMock()
+    mock_env.reset.return_value = ({"obs": 0}, {})
+    # not terminated for 2 steps, then terminated on the 3rd
+    mock_env.step.side_effect = [
+        ({"obs": 1}, 0.0, False, False, {}),
+        ({"obs": 2}, 0.0, False, False, {}),
+        ({"obs": 3}, 0.0, True, False, {}),
+    ]
+
+    loops.rl_control_loop(mock_model, mock_env)
+
+    assert mock_env.step.call_count == 3
+    assert mock_model.predict.call_count == 3
+    mock_model.predict.assert_called_with({"obs": 2}, deterministic=True)
+    mock_env.render.assert_called_once()  # called once, after the loop
+
+
+def test_rl_control_loop_stops_on_truncated():
+    mock_model = MagicMock()
+    mock_model.predict.return_value = (0, None)
+
+    mock_env = MagicMock()
+    mock_env.reset.return_value = ({"obs": 0}, {})
+    mock_env.step.return_value = ({"obs": 1}, 0.0, False, True, {})  # truncated
+
+    loops.rl_control_loop(mock_model, mock_env)
+
+    assert mock_env.step.call_count == 1
+    mock_env.render.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# test_trained_rl
+# ---------------------------------------------------------------------------
+
+
+def test_test_trained_rl_orchestrates_load_run_and_metrics(tmp_path, env_kwargs):
+    save_dir = tmp_path
+    fake_history = pd.DataFrame({"time": [0, 1], "actual_power": [1.0, 1.0]})
+
+    with patch("loops.find_latest_file") as mock_find_latest, patch(
+        "loops.sb3.PPO.load"
+    ) as mock_ppo_load, patch("loops.rl_control_loop") as mock_control_loop, patch(
+        "loops.metrics", return_value=(0.1, 0.2, 0.3, 0.4)
+    ) as mock_calc_metrics, patch(
+        "loops.pd.read_csv", return_value=fake_history
+    ) as mock_read_csv:
+
+        mock_find_latest.side_effect = [
+            tmp_path / "models" / "best_model.zip",  # model lookup
+            tmp_path / "run_history_001.csv",  # history lookup
+        ]
+        mock_model = MagicMock()
+        mock_ppo_load.return_value = mock_model
+
+        result = loops.test_trained_rl(DummyDictEnv, save_dir, env_kwargs)
+
+        mock_find_latest.assert_has_calls(
+            [
+                call(tmp_path / "models", pattern="*.zip"),
+                call(tmp_path, pattern="run_history*.csv"),
+            ]
+        )
+        mock_ppo_load.assert_called_once_with(
+            tmp_path / "models" / "best_model.zip", device="cpu"
+        )
+        mock_control_loop.assert_called_once()
+        assert mock_control_loop.call_args.args[0] is mock_model
+        mock_read_csv.assert_called_once_with(tmp_path / "run_history_001.csv")
+        mock_calc_metrics.assert_called_once_with(fake_history)
+        assert result is fake_history

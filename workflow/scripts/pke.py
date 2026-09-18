@@ -1,3 +1,18 @@
+"""
+This code was modified from that created for the following publication:
+
+Leo Tunkle, Kamal Abdulraheem, Linyu Lin, Majdi I. Radaideh,
+Nuclear microreactor transient and load-following control with deep reinforcement learning,
+Energy Conversion and Management: X,
+Volume 27,
+2025,
+101090,
+ISSN 2590-1745,
+https://doi.org/10.1016/j.ecmx.2025.101090.
+
+Tunkle et al.'s original codebase available at: https://github.com/aims-umich/microdrum-marl.
+"""
+
 import time
 import numpy as np
 import pandas as pd
@@ -133,7 +148,7 @@ class HolosPK:
         assert len(drum_forcers) == len(drum_angles)  # sanity check
         return drum_forcers
 
-    def reactor_dae(self, t, state, drum_forcers):
+    def reactor_dae(self, t, state, *drum_forcers):
         """Calculates derivatives for reactor state update.
 
         Args:

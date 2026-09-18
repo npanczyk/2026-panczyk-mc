@@ -1,60 +1,28 @@
+"""
+This code was modified from that created for the following publication:
+
+Leo Tunkle, Kamal Abdulraheem, Linyu Lin, Majdi I. Radaideh,
+Nuclear microreactor transient and load-following control with deep reinforcement learning,
+Energy Conversion and Management: X,
+Volume 27,
+2025,
+101090,
+ISSN 2590-1745,
+https://doi.org/10.1016/j.ecmx.2025.101090.
+
+Tunkle et al.'s original codebase available at: https://github.com/aims-umich/microdrum-marl.
+"""
+
 import time
 import numpy as np
 import pandas as pd
 from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
 import gymnasium as gym
-from holos_pk import HolosPK
+from pke import HolosPK
 from pathlib import Path
 import warnings
-
-
-def scale(real_value, type):
-    """Takes a value in real space and converts it to gym space
-
-    Args:
-        real_value (float): value in the real-scaled system
-        type (string): Options: "power" or "dpower" or "dtheta" or "drum_angles"
-
-    Returns:
-        float: value scaled for the gym system
-    """
-    if type == "power":
-        # real bounds are 0 to 22 MW, gym bounds are 0 to 1
-        return real_value / 22
-    elif type == "dpower":
-        # real bounds are -22 to 22 MW/s # CHANGE THIS LATER USING PROMPT JUMP, gym bounds are -1 to 1
-        return real_value / 22
-    elif type == "dtheta":
-        # real bounds are -0.5 deg/s to 0.5 deg/s, gym bounds are -1 to 1
-        return real_value * 2
-    elif type == "drum_angles":
-        # real bounds are 0 to 180 deg, gym bounds are 0 to 1
-        return real_value / 180
-
-
-def descale(gym_value, type):
-    """Takes a value in gym space and converts it to real space
-
-    Args:
-        gym_value (float): value in the gym-scaled system
-        type (string): Options: "power" or "dpower" or "dtheta"
-
-    Returns:
-        float: value scaled for the gym system
-    """
-    if type == "power":
-        # real bounds are 0 to 22 MW, gym bounds are 0 to 1
-        return gym_value * 22
-    elif type == "dpower":
-        # real bounds are -22 to 22 MW/s # CHANGE THIS LATER USING PROMPT JUMP, gym bounds are -1 to 1
-        return gym_value * 22
-    elif type == "dtheta":
-        # real bounds are -0.5 deg/s to 0.5 deg/s, gym bounds are -1 to 1
-        return gym_value / 2
-    elif type == "drum_angles":
-        # real bounds are 0 to 180, gym bounds are 0 to 1
-        return gym_value * 180
+from accessories import scale, descale
 
 
 class HolosMulti(gym.Env):
@@ -70,7 +38,7 @@ class HolosMulti(gym.Env):
         """Initializes the HolosMulti environment
 
         Args:
-            profile (interp1d function): callable function to yield the desired power (y) at any given time (x)
+            profile (interp1d function): callable function to yield the desired power (y) at any given time (x) as a fraction of the total reactor power.
             episode_length (int): Number of timesteps in the episode (NOT seconds, this is just a count)
             training (bool): Whether the run is for training or testing.
             max_failed_drums (int): The maximum number of drums allowed to randomly fail.
@@ -101,15 +69,13 @@ class HolosMulti(gym.Env):
         self.pke = HolosPK()
         # initialize starting states
         self._dp = 0  # starting power rate of change, assume 0 at steady state
-        self._p = (
-            1  # starting power (MW), assume reactor starts at full power steady state
-        )
-        self._pnext = self.profile(0)  # next desired power (MW)
+        self._p = 1  # starting power (as a fraction of total power)), assume reactor starts at full power steady state
+        self._pnext = self.profile(0)  # next desired power (fraction)
         self._drum_angles = np.array([77.8] * 8)
 
         self.observation_space = gym.spaces.Dict(
             {
-                "dp": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+                "dp": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
                 "p": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
                 "pnext": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
                 "drum_angles": gym.spaces.Box(

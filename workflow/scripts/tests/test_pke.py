@@ -1,5 +1,5 @@
 import pytest
-from holos_pk import HolosPK
+from pke import HolosPK
 
 
 @pytest.fixture

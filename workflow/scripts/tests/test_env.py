@@ -1,0 +1,184 @@
+import pytest
+from env import HolosMulti
+import numpy as np
+from scipy.interpolate import interp1d
+from unittest.mock import patch, MagicMock
+
+
+@pytest.fixture
+def env():
+    return HolosMulti(profile=lambda t: 1, episode_length=10)
+
+
+def test_init_observation_space_keys(env):
+    assert set(env.observation_space.spaces.keys()) == {
+        "dp",
+        "p",
+        "pnext",
+        "drum_angles",
+    }
+    assert env.observation_space["drum_angles"].shape == (8,)
+
+
+def test_init_action_space(env):
+    assert env.action_space.shape == (8,)
+    assert env.action_space.low[0] == -1
+    assert env.action_space.high[0] == 1
+
+
+def test_init_runtime():
+    env = HolosMulti(profile=lambda t: 1, episode_length=10, dt=2)
+    assert env.runtime == 20
+
+
+def test_init_starting_state(env):
+    assert env._dp == 0
+    assert env._p == 1
+    assert env._pnext == 1  # profile(0)
+    np.testing.assert_array_equal(env._drum_angles, np.full(8, 77.8))
+
+
+def test_mask_drums_training(env):
+    env.mask_drums()
+    assert env.masks.shape == (8,)
+    assert env.masks.sum() == 8
+
+
+def test_mask_drums_nontraining():
+    env = HolosMulti(
+        profile=lambda t: 1, episode_length=10, training=False, max_failed_drums=3
+    )
+    env.mask_drums()
+    assert env.masks.shape == (8,)
+    n_failed = 8 - env.masks.sum()
+    assert n_failed in (0, 1, 2, 3)
+
+
+def test_reset_observation(env):
+    observation, _ = env.reset()
+    print(observation)
+    # remove numpy array for separate comparison
+    drum_angles = observation.pop("drum_angles")
+    assert observation == {
+        "dp": 0,
+        "p": 1,
+        "pnext": 1,
+    }
+    # the angles are scaled during observation, check this!
+    np.testing.assert_array_equal(drum_angles, np.array([77.8 / 180] * 8))
+
+
+def test_reset_history(env):
+    env.reset()
+    assert len(env.history) == 1
+    row = env.history[0]
+    # time, p, profile(time), 8 drum angles, 12 state values
+    assert len(row) == 1 + 1 + 1 + 8 + 12
+
+
+def test_log_history(env):
+    env.reset()
+    # this should initialize the history
+    env._log_history()
+    # this should append another row
+    assert len(env.history) == 2
+
+
+def test_get_dp_zero_when_power_unchanged(env):
+    env.reset()
+    env._p = env.history[-1][1]  # same as last logged power
+    assert env._get_dp() == 0
+
+
+def test_get_dp_nonzero_when_power_changes(env):
+    env.reset()
+    env._p = env.history[-1][1] + 0.5  # fudge to mimic ramp
+    assert env._get_dp() == pytest.approx(0.5 / env.dt)
+
+
+def test_render(env):
+    env.reset()
+    df = env.render()
+    assert df["actual_power"][0] == 1, "steady state initial power value should be 100"
+    assert df["drum_1"][0] == 77.8, "steady state initial drum angle should be 77.8"
+
+
+def test_run_without_error(env):
+    env.reset()
+    # rotate the drums 0 degrees
+    obs, reward, terminated, truncated, info = env.step(np.zeros(8))
+    assert np.all(np.isfinite(env.state))
+
+
+def test_zero_action_small_perturbation(env):
+    env.reset()
+    obs, reward, terminated, truncated, info = env.step(np.zeros(8))
+    # tighten this bound later, just making sure it runs for now
+    assert abs(env._p - 1.0) <= 0.05
+    assert terminated is False
+
+
+def make_sol(next_state):
+    sol = MagicMock()
+    sol.y = np.array(next_state).reshape(-1, 1)
+    return sol
+
+
+def test_step_return_shape(env):
+    env.reset()
+    with patch("env.solve_ivp", return_value=make_sol(env.state)):
+        obs, reward, terminated, truncated, info = env.step(np.zeros(8))
+    assert set(obs.keys()) == {"dp", "p", "pnext", "drum_angles"}
+    assert isinstance(reward, (int, float, np.floating))
+    assert isinstance(terminated, (bool, np.bool_))
+    assert isinstance(truncated, (bool, np.bool_))
+    assert info == {}
+
+
+def test_truncated_only_at_end(env):
+    env.reset()
+    with patch("env.solve_ivp", return_value=make_sol(env.state)):
+        for _ in range(env.episode_length - 1):
+            *_, truncated, _ = env.step(np.zeros(8))
+            assert truncated is False
+        *_, truncated, _ = env.step(np.zeros(8))
+    assert truncated is True
+
+
+def test_drum_angles_clipped(env):
+    env.reset()
+    action = np.ones(8)
+    with patch("env.solve_ivp", return_value=make_sol(env.state)):
+        for _ in range(250):  # enough steps to exceed 180 without clipping
+            env.step(action)
+    assert env._drum_angles.max() <= 180
+    assert env._drum_angles.min() >= 0
+
+
+def test_masked_drums_stay_fixed(env):
+    env.reset()
+    env.masks = np.array([0, 1, 1, 1, 1, 1, 1, 1])
+    start_angle = env._drum_angles[0]
+    with patch("env.solve_ivp", return_value=make_sol(env.state)):
+        env.step(np.ones(8))
+    assert env._drum_angles[0] == start_angle
+    assert env._drum_angles[1] != start_angle
+
+
+def test_dp_sign_matches_power_change(env):
+    env.reset()
+    higher_power_state = env.state.copy()
+    higher_power_state[0] += 0.1  # manually increase n_r on the fake new state
+    with patch("env.solve_ivp", return_value=make_sol(higher_power_state)):
+        env.step(np.zeros(8))
+    assert (
+        env._dp > 0
+    )  # when we check from the original state, the power should increase with n_r
+
+
+def test_multi_step_stability(env):
+    env.reset()
+    for _ in range(3):
+        obs, reward, terminated, truncated, info = env.step(np.zeros(8))
+        assert np.all(np.isfinite(env.state))
+        assert not terminated
