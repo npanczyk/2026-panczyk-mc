@@ -92,9 +92,9 @@ class HolosMulti(gym.Env):
         Returns: dp, p, drum angles, pnext as a dictionary
         """
         return {
-            "dp": self._dp,
-            "p": self._p,
-            "pnext": self._pnext,
+            "dp": np.array([self._dp], dtype=np.float32),
+            "p": np.array([self._p], dtype=np.float32),
+            "pnext": np.array([self._pnext], dtype=np.float32),
             "drum_angles": scale(self._drum_angles, "drum_angles"),
         }
 

@@ -116,3 +116,27 @@ def find_latest_file(folder_path, pattern="*"):
             f"No files matching '{pattern}' in '{folder_path}'. "
             "Please ensure models and their associated files have been generated first."
         )
+
+
+def get_run_folder(run_type, base=Path.cwd() / "runs"):
+    """Creates a run folder based on the run_type ("multi-rl", "single-rl", "marl", etc.)
+
+    Args:
+        run_type (string): Run name, such as "multi-rl", "single-rl", "marl"
+        base (Path, optional): Path to put the run folder in. Defaults to Path.cwd()/'runs'.
+
+    Returns:
+        Path: a path to the run folder
+    """
+    run_folder = base / run_type
+    run_folder.mkdir(exist_ok=True, parents=True)
+    return run_folder
+
+
+def episode_length_within_max_time(profile, episode_length, dt):
+    max_time = profile.x[-1]
+    episode_time = episode_length * dt
+    if episode_time > max_time:
+        return False
+    else:
+        return True

@@ -134,7 +134,7 @@ def test_trained_rl(env_type, save_dir, env_kwargs):
     model_path = find_latest_file(model_folder, pattern="*.zip")
     model = sb3.PPO.load(model_path, device="cpu")
 
-    test_env = env_type(**env_kwargs)
+    test_env = env_type(**env_kwargs, save_dir=save_dir)
     rl_control_loop(model, test_env)
 
     history_path = find_latest_file(save_dir, pattern="run_history*.csv")
