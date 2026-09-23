@@ -218,5 +218,5 @@ __marimo__/
 .streamlit/secrets.toml
 *.pdf
 
-/runs
-/run_histories
+/workflow/scripts/runs
+/workflow/scripts/run_histories
