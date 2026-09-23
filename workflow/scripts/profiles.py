@@ -111,7 +111,9 @@ def get_profile(name=None, max_failed_drums=0):
     return training_kwargs, testing_kwargs
 
 
-def multi_drum_training(training_kwargs, total_timesteps=int(2e6), n_envs=10):
+def multi_drum_training(
+    training_kwargs, total_timesteps=int(2e6), n_envs=10, run_name="multi-rl"
+):
     """Gets the path for and actually runs the training loop for the multidrum case
 
     Args:
@@ -122,7 +124,7 @@ def multi_drum_training(training_kwargs, total_timesteps=int(2e6), n_envs=10):
     Returns:
         Path: path to the run folder
     """
-    run_folder = accessories.get_run_folder("multi-rl")
+    run_folder = accessories.get_run_folder(run_name)
     model_path = run_folder / "models" / "best_model.zip"
     # if a best model file doesn't exist, re-train
     if not model_path.exists():
@@ -137,8 +139,7 @@ def multi_drum_training(training_kwargs, total_timesteps=int(2e6), n_envs=10):
     return run_folder
 
 
-def multi_drum_testing(testing_kwargs):
-    run_folder = accessories.get_run_folder("multi-rl")
+def multi_drum_testing(testing_kwargs, run_folder):
     history = loops.test_trained_rl(
         env_type=env.HolosMulti, save_dir=run_folder, env_kwargs=testing_kwargs
     )

@@ -64,7 +64,7 @@ class HolosMulti(gym.Env):
             self.save_dir = Path("./run_histories")
             self.save_dir.mkdir(parents=True, exist_ok=True)
         # number of seconds in an episode
-        self.runtime = episode_length * dt
+        self.runtime = episode_length * dt - dt
         # initialize a point kinetics model
         self.pke = HolosPK()
         # initialize starting states
