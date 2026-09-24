@@ -9,6 +9,7 @@ def plot_power(history, save_dir=None):
     ax.legend()
     ax.set_xlabel("Time, [s]")
     ax.set_ylabel("Fraction of Total Power")
+    ax.grid()
     fig.tight_layout()
     if save_dir:
         plt.savefig(f"{save_dir}/power.png", dpi=300)
