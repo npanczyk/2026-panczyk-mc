@@ -86,16 +86,23 @@ class HolosMulti(gym.Env):
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
 
-    def _get_observation(self):
+    def _get_observation(self, xo):
         """Converts internal state to observation format (recommended per gym docs)
+
+        Args:
+            xo (dict, optional): observation disturbance with keys dp, p, and drum_angles
 
         Returns: dp, p, drum angles, pnext as a dictionary
         """
+        if xo["drum_angles"].shape != (8,):
+            raise ValueError("Drum angle disturbance must be in the shape (8,)!")
+        # fuzz then scale the drum angles
+        noisy_drum_angles = scale(self._drum_angles, "drum_angles") + xo["drum_angles"]
         return {
-            "dp": np.array([self._dp], dtype=np.float32),
-            "p": np.array([self._p], dtype=np.float32),
+            "dp": np.array([self._dp + xo["dp"]], dtype=np.float32),
+            "p": np.array([self._p + xo["p"]], dtype=np.float32),
             "pnext": np.array([self._pnext], dtype=np.float32),
-            "drum_angles": scale(self._drum_angles, "drum_angles"),
+            "drum_angles": noisy_drum_angles.astype(np.float32),
         }
 
     def _get_dp(self):
@@ -112,7 +119,7 @@ class HolosMulti(gym.Env):
             self.history = [
                 [
                     self.time,
-                    self._p,  # observed power
+                    self._p,  # actual power
                     self.profile(self.time),  # desired power
                     *self._drum_angles,
                     *self.state,
@@ -123,7 +130,7 @@ class HolosMulti(gym.Env):
             self.history.append(
                 [
                     self.time,
-                    self._p,  # observed power
+                    self._p,  # actual power
                     self.profile(self.time),  # desired power
                     *self._drum_angles,
                     *self.state,

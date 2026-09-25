@@ -32,6 +32,10 @@ def get_profile(name=None, max_failed_drums=0):
     Returns:
         tuple: training_kwargs dictionary, testing_kwargs dictionary
     """
+    # warn users if the profile name they provided is wrong
+    if name not in ["long", "low_power", "train"]:
+        print(f'WARNING!!! {name} is not a recognized profile, defaulting to TRAIN profile.')
+
     # create interpolated power profiles
     training_profile = interp1d(
         [0, 10, 20, 30, 50, 70, 120, 140, 160, 195, 200],  # times (s)
@@ -137,10 +141,3 @@ def multi_drum_training(
             n_envs=n_envs,
         )
     return run_folder
-
-
-def multi_drum_testing(testing_kwargs, run_folder):
-    history = loops.test_trained_rl(
-        env_type=env.HolosMulti, save_dir=run_folder, env_kwargs=testing_kwargs
-    )
-    return history

@@ -113,7 +113,7 @@ def rl_control_loop(model: sb3.PPO, env):
     env.render()
 
 
-def test_trained_rl(env_type, save_dir, env_kwargs):
+def test_trained_rl(env_type, load_dir, save_dir, env_kwargs):
     """Evaluate the most recent trained checkpoint and report control metrics.
 
     Loads the newest .zip checkpoint in `save_dir/models/`, runs it
@@ -122,7 +122,8 @@ def test_trained_rl(env_type, save_dir, env_kwargs):
 
     Args:
         env_type: Environment class to construct for testing.
-        save_dir: Path to save the file to
+        load_dir: Path to load the model from.
+        save_dir: Path to save the file to a
         env_kwargs: Kwargs passed to `env_type`; must include
             'save_dir' (Path).
 
@@ -130,7 +131,7 @@ def test_trained_rl(env_type, save_dir, env_kwargs):
         DataFrame of the full run history (state/action trace) for
         the evaluated episode.
     """
-    model_folder = save_dir / "models/"
+    model_folder = load_dir / "models/"
     model_path = find_latest_file(model_folder, pattern="*.zip")
     model = sb3.PPO.load(model_path, device="cpu")
 

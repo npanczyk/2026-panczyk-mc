@@ -3,6 +3,8 @@ from pke import HolosPK
 import profiles
 from scipy.interpolate import interp1d
 import numpy as np
+import loops
+import env
 
 
 def test_get_profile():
@@ -47,6 +49,8 @@ def test_multi_drum_runthrough(quick_kwargs, tmp_path, monkeypatch):
     )
     assert (run_folder / "models" / "best_model.zip").exists()
 
-    history = profiles.multi_drum_testing(testing_kwargs, run_folder)
+    history = loops.test_trained_rl(
+        env_type=env.HolosMulti, load_dir=run_folder, save_dir=run_folder, env_kwargs=testing_kwargs
+    )
     assert len(history) > 0
     assert "actual_power" in history.columns
